@@ -15,6 +15,7 @@ class SocialController extends Controller
         return Socialite::driver('google')->redirect();
     }
     function googleVerify(){
+        // stateless()
         $user = Socialite::driver('google')->user();
         $customer =Customer::updateOrCreate(
             [

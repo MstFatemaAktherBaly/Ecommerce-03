@@ -6,6 +6,8 @@ use App\Models\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use App\Library\SslCommerz\SslCommerzNotification;
+use App\Models\Cart;
+use App\Models\OrderItem;
 
 class SslCommerzPaymentController extends Controller
 {
@@ -141,7 +143,7 @@ class SslCommerzPaymentController extends Controller
 
 
         #Before  going to initiate the payment order status need to update as Pending.
-        $update_product = Order::updateOrICreate(
+        $update_product = Order::updateOrCreate(
                 [
                     'transaction_id'=> $post_data['tran_id']
                 ],
@@ -160,6 +162,15 @@ class SslCommerzPaymentController extends Controller
                 'transaction_id' => $post_data['tran_id'],
                 'currency' => $post_data['currency']
             ]);
+            $carts = Cart::where('customer_id', auth('customer')->id())->with('product:id,selling_price,price')->get();
+            foreach ($carts as $item) {
+              $orderItem = new OrderItem();
+              $orderItem->order_id = $update_product->id;
+              $orderItem->product_id = $item->product_id;
+              $orderItem->qty = $item->qty;
+              $orderItem->amount = $item->qty * ($item->product->selling_price ?? $item->product->price);
+              $orderItem->save();
+            }
 
         $sslc = new SslCommerzNotification();
         # initiate(Transaction Data , false: Redirect to SSLCOMMERZ gateway/ true: Show all the Payement gateway here )
@@ -185,7 +196,7 @@ class SslCommerzPaymentController extends Controller
         #Check order status in order tabel against the transaction id or order id.
         $order_details = DB::table('orders')
             ->where('transaction_id', $tran_id)
-            ->select('transaction_id', 'status', 'currency', 'amount')->first();
+            ->select('transaction_id', 'status', 'currency', 'total_amount')->first();
 
         if ($order_details->status == 'Pending') {
             $validation = $sslc->orderValidate($request->all(), $tran_id, $amount, $currency);
@@ -206,6 +217,10 @@ class SslCommerzPaymentController extends Controller
             /*
              That means through IPN Order status already updated. Now you can just show the customer that transaction is completed. No need to udate database.
              */
+            $carts = Cart::where('customer_id', auth('customer')->id())->get();
+            foreach ($carts as $item) {
+              $item->delete();
+            }
             echo "Transaction is successfully Completed";
         } else {
             #That means something wrong happened. You can redirect customer to your product page.
